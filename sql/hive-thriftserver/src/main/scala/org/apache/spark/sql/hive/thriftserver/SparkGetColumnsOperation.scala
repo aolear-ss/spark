@@ -36,23 +36,23 @@ import org.apache.spark.sql.types._
 /**
  * Spark's own SparkGetColumnsOperation
  *
- * @param sqlContext SQLContext to use
+ * @param sqlContext    SQLContext to use
  * @param parentSession a HiveSession from SessionManager
- * @param catalogName catalog name. NULL if not applicable.
- * @param schemaName database name, NULL or a concrete database name
- * @param tableName table name
- * @param columnName column name
+ * @param catalogName   catalog name. NULL if not applicable.
+ * @param schemaName    database name, NULL or a concrete database name
+ * @param tableName     table name
+ * @param columnName    column name
  */
 private[hive] class SparkGetColumnsOperation(
-    val sqlContext: SQLContext,
-    parentSession: HiveSession,
-    catalogName: String,
-    schemaName: String,
-    tableName: String,
-    columnName: String)
+                                              val sqlContext: SQLContext,
+                                              parentSession: HiveSession,
+                                              catalogName: String,
+                                              schemaName: String,
+                                              tableName: String,
+                                              columnName: String)
   extends GetColumnsOperation(parentSession, catalogName, schemaName, tableName, columnName)
-  with SparkOperation
-  with Logging {
+    with SparkOperation
+    with Logging {
 
   val catalog: SessionCatalog = sqlContext.sessionState.catalog
 
@@ -95,8 +95,13 @@ private[hive] class SparkGetColumnsOperation(
       // Tables and views
       db2Tabs.foreach {
         case (dbName, tables) =>
-          catalog.getTablesByName(tables).foreach { catalogTable =>
-            addToRowSet(columnPattern, dbName, catalogTable.identifier.table, catalogTable.schema)
+          catalog.getTablesByName(tables).foreach { catalogTable => {
+            if (catalogTable.provider.getOrElse("").equalsIgnoreCase("delta")) {
+              addToRowSet(columnPattern, dbName, catalogTable.identifier.table, sqlContext.sparkSession.table(f"${catalogTable.database}.${catalogTable.identifier.table}").schema)
+            } else {
+              addToRowSet(columnPattern, dbName, catalogTable.identifier.table, catalogTable.schema)
+            }
+          }
           }
       }
 
@@ -130,8 +135,8 @@ private[hive] class SparkGetColumnsOperation(
    * For array, map, string, and binaries, the column size is variable, return null as unknown.
    */
   private def getColumnSize(typ: DataType): Option[Int] = typ match {
-    case dt @ (BooleanType | _: NumericType | DateType | TimestampType | TimestampNTZType |
-               CalendarIntervalType | NullType | _: AnsiIntervalType) =>
+    case dt@(BooleanType | _: NumericType | DateType | TimestampType | TimestampNTZType |
+             CalendarIntervalType | NullType | _: AnsiIntervalType) =>
       Some(dt.defaultSize)
     case CharType(n) => Some(n)
     case StructType(fields) =>
@@ -192,10 +197,10 @@ private[hive] class SparkGetColumnsOperation(
   }
 
   private def addToRowSet(
-      columnPattern: Pattern,
-      dbName: String,
-      tableName: String,
-      schema: StructType): Unit = {
+                           columnPattern: Pattern,
+                           dbName: String,
+                           tableName: String,
+                           schema: StructType): Unit = {
     schema.zipWithIndex.foreach { case (column, pos) =>
       if (columnPattern != null && !columnPattern.matcher(column.name).matches()) {
       } else {
